@@ -1,0 +1,38 @@
+---
+title: "DataCleaningIncome"
+output: html_document
+---
+
+## Independent Variable (manufacturing income by county by year)
+
+```{r setup, include=FALSE}
+library(tidyverse)
+income<- read.csv("income.county.industry.year.csv") 
+
+
+grouped<- income %>%
+  select(-LineCode,-IndustryClassification)%>%
+  filter(Description == "Personal income (thousands of dollars)"|Description =="   Manufacturing")%>%
+pivot_longer(starts_with("X"),names_to = "year", values_to = "count")
+grouped$year <- as.integer(gsub("X","",(grouped$year))) 
+grouped <-grouped%>%
+pivot_wider(names_from = Description, values_from = count) %>%
+  rename(County = "GeoName")%>%
+  rename(Year = "year")
+```
+
+
+## Drug Related Deaths Data
+
+```{r}
+library(haven)
+library(ggplot2)
+library(tidyverse)
+
+deaths <- read.csv("drug_related_deaths.csv")
+
+#summary
+deaths %>%
+  group_by(Year)%>%
+ summarize(n=sum(Deaths, na.rm = TRUE))%>%
+  ggplot() + aes(x = Year,y=n) +geom_point()
