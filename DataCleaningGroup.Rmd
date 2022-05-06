@@ -162,7 +162,7 @@ clean <- grouped_final %>%
   #just need county, GeoFIS, Year, and percent_manuf)
   select(GeoFIPS,County,Year,percent_manuf)%>%
   mutate(GeoFIPS = as.numeric(GeoFIPS))
-clean
+head(clean)
 ```
 
 
@@ -188,6 +188,121 @@ deaths <- deaths %>%
 
 #Join Deaths Data with Manuf Data
 combined <- inner_join(clean,deaths)
+head(combined)
+```
+ ## Unemployment
+
+
+```{r}
+
+unemployment <- read.csv("unemployment.csv")
+unemployment<- unemployment %>%
+  pivot_longer(starts_with("unemployment_rate_"),names_to ="year", values_to = "unemployment_rate") %>%
+  select(FIPS_Code, State,Area_name, unemployment_rate, year)
+unemployment$year <- as.integer(gsub("Unemployment_rate_","",(unemployment$year))) 
+unemployment <- unemployment %>%
+  rename(GeoFIPS = "FIPS_Code") %>%
+  rename(Year = "year")%>%
+  select(-State,-Area_name)
+head(unemployment)
+combined_unemployment <- left_join(combined,unemployment)
+head(combined_unemployment)
+
+class(combined_unemployment$GeoFIPS)
+```
+
+## Census Data
+
+```{r}
+
+library(tidycensus)
+library(sf)
+library(scales)
+
+# define years using purrr::lst to automatically creates a named list
+# which will help later when we combine the results in a single tibble
+ 
+#find variables
+#load_variables(year=2017, dataset = "acs1") %>%
+  filter(str_detect(name,"B28"))
+
+# which census variables?
+my_vars <- c(
+  race_denom = "B02001_001",
+  white = "B02001_002",
+  black = "B02001_003",
+  american_indian_alaska_native = "B02001_004",
+  asian = "B02001_005",
+  hawaiian_other = "B02001_006",
+  other_race = "B02001_007",
+  two_more = "B02001_008",
+  hisp_denom = "B03001_001",
+  hisp = "B03001_003",
+  gender_denom = "B01001_001",
+  male = "B01001_002",
+  female = "B01001_026",
+  med_income = "B19013_001",
+  cit_denom = "B05001_001",
+  not_cit = "B05001_002"#**
+  #renters = "B25128_024",#**
+  #mh_counselors = "B244126_133",#**
+  #comp_denom = "B28003_001",
+  #computer_broadband = "B28003_004"
+  
+)
+
+
+# define years using purrr::lst to automatically creates a named list
+# which will help later when we combine the results in a single tibble
+years <- lst(2005,2006,2007,2008, 2009,2010,2011,2012,2013,2014,2015, 2016,2017,2018,2019) 
+
+
+
+# loop over list of years and get 1 year acs estimates
+census_multi <- map_dfr(
+  years,
+  ~ get_acs(
+      geography = "county",
+      variables = my_vars,
+      year = .x,
+      survey = "acs1",
+      geometry = FALSE
+      ),
+  .id = "year"  # when combining results, add id var (name of list item)
+  ) %>%
+  select(-moe) %>%  # shhhh
+  arrange(variable, NAME) %>% 
+  print()
+
+census_multi2 <- census_multi%>%
+  #widen dataset to view total income in one column and total manufacturing income in another
+pivot_wider(names_from = variable, values_from = estimate) %>%
+  transform(asian = asian/race_denom)%>%
+  transform(american_indian_alaska_native=american_indian_alaska_native/race_denom)%>%
+  transform(black = black/race_denom)%>%
+  transform(not_cit = not_cit/cit_denom)%>%
+  transform(female = female/gender_denom)%>%
+  transform(male = male/gender_denom)%>%
+  transform(hawaiian_other = hawaiian_other/race_denom)%>%
+  transform(hisp = hisp/hisp_denom)%>%
+  transform(other_race = other_race/race_denom)%>%
+  transform(two_more = two_more/race_denom)%>%
+  transform(white = white/race_denom)%>%
+  select(-contains("_denom"),-NAME)%>%
+  rename(GeoFIPS = "GEOID")%>%
+  mutate(GeoFIPS = as.numeric(GeoFIPS))%>%
+  rename(Year = "year")%>%
+  mutate(Year = as.integer(Year))
+
+class(census_multi2$GeoFIPS)
+class(census_multi2$Year)
+class(combined_unemployment$GeoFIPS)
+class(combined_unemployment$Year)
+combined_unemployment
+
+final_county<- left_join(census_multi2,combined_unemployment)%>%
+  select(-County)
+head(final_county)
 
 ```
 
@@ -196,16 +311,4 @@ combined <- inner_join(clean,deaths)
 ```{r}
 
 
-```
-
-
-```{r}
-
-
-```
-
-
-## Drug Related Deaths Data
-
-```{r}
 
