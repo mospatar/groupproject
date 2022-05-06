@@ -9,23 +9,165 @@ output: html_document
 library(tidyverse)
 income<- read.csv("income.county.industry.year.csv") 
 
-
+#group income data by GeoName and Year (remove line code and industry classification, as well as other industry amounts)
 grouped<- income %>%
   select(-LineCode,-IndustryClassification)%>%
   filter(Description == "Personal income (thousands of dollars)"|Description =="   Manufacturing")%>%
+  # lengthen data to read year in one column
 pivot_longer(starts_with("X"),names_to = "year", values_to = "count")
+#remove X from year variable and read as integer
 grouped$year <- as.integer(gsub("X","",(grouped$year))) 
+#widen dataset to view total income in one column and total manufacturing income in another
 grouped <-grouped%>%
 pivot_wider(names_from = Description, values_from = count) %>%
+#rename to county and year so it will match next dataset
   rename(County = "GeoName")%>%
+  rename(Manufacturing = `   Manufacturing`)%>%
   rename(Year = "year")
+grouped[grouped == "(D)"] <- NA
 ```
 
 
-## Drug Related Deaths Data
+
+## Fill "Missing" Region Data with averages of remaining US year total
+```{r}
+#Create New df for just year total amounts
+year_total <- grouped %>%
+  filter(as.numeric(GeoFIPS)==0)
+
+#Create a New Grouped df summing EXISTING region data for year amounts
+year_sums <- grouped %>%
+  filter(as.numeric(GeoFIPS)>90000)%>%
+#group by year, summarize total amount of manuf and total number of missing values
+  group_by(Year)%>%
+  summarize(total_manuf = sum(as.numeric(Manufacturing),na.rm = TRUE),count_D = sum(is.na(Manufacturing)))
+
+
+# join year_total df to year_sums data
+year_joined <- left_join(year_total,year_sums)%>%
+  #subtract state sum from region total in order to calculate average manuf number for each region missing
+transform(missing_amount_manuf = as.numeric(Manufacturing)- total_manuf) %>%
+  transform(average_D = missing_amount_manuf / count_D)%>%
+  #select just the year level new number as to not interfere in next join
+  select(Year,average_D)
+
+#join year_joined average back onto original "grouped" data
+
+Grouped_w_all<- left_join(grouped,year_joined)%>%
+  mutate(Manufacturing = if_else(is.na(Manufacturing) & as.numeric(GeoFIPS)>90000,average_D,as.numeric(Manufacturing)))
+#don't want this to replace ALL manufacturing n/as, just the ones for regions
+
+#take new version of manufacturing and use it to replicate this process for states
+grouped2<- select(Grouped_w_all,-average_D)
+
+```
+
+
+## Fill "Missing" State Data with averages of remaining region amounts
+```{r}
+#Create New df for just Regional level amounts
+region_totals <- grouped2 %>%
+  filter(as.numeric(GeoFIPS)>90000)
+
+#Create a New Grouped df for state sums, grouped by region and year
+region_sums <- grouped2 %>%
+  filter(str_ends(GeoFIPS,"000"))%>% #just grabbing states
+  filter(County != "United States")%>% #ignoring US
+  filter(as.numeric(GeoFIPS)<90000)%>% #ignoring regions
+#group by state and year, summarize total amount of manuf and total number of missing values
+  group_by(Region,Year)%>%
+  summarize(total_manuf = sum(as.numeric(Manufacturing),na.rm = TRUE),count_D = sum(is.na(Manufacturing)))
+
+
+# join region_total df to region_sums data
+region_joined <- left_join(region_totals,region_sums)%>%
+  #subtract state sum from region total
+transform(missing_amount_manuf = as.numeric(Manufacturing)- total_manuf) %>%
+  transform(average_D = missing_amount_manuf / count_D)%>%
+#select just the year level new number as to not interfere in next join
+  select(Year,Region, average_D)
+
+#join region average back onto original "grouped" data
+
+regions_joined_with_all<- left_join(grouped2,region_joined)%>%
+  mutate(Manufacturing = if_else(is.na(Manufacturing) & str_ends(GeoFIPS,"000") & County != "United States" & as.numeric(GeoFIPS)<90000,average_D,as.numeric(Manufacturing)))
+#don't want this to replace ALL manufacturing n/as, just the ones for states
+
+#take new version of manufacturing and use it to replicate this process for counties
+grouped3<- select(regions_joined_with_all,-average_D)
+
+#at this point, I should have manufacturing data for all regions and for all states in all years
+grouped3 %>%
+  filter(GeoFIPS>9000 & is.na(Manufacturing))
+grouped3 %>%
+  filter(str_ends(GeoFIPS,"000") & County != "United States" & as.numeric(GeoFIPS)<90000 & is.na(Manufacturing))
+#good!
+```
+## Finally, Fill "Missing" County Data with averages of remaining state amounts
 
 ```{r}
-library(haven)
+#Create New df for just state level amounts
+state_totals <- grouped3 %>%
+  filter(str_ends(GeoFIPS,"000"))%>% #just grabbing states
+  filter(County != "United States")%>% #ignoring US
+  filter(as.numeric(GeoFIPS)<90000)%>% #ignoring regions
+  #add column with State ID (first two digits of FIPS) 
+  mutate(state_id = as.numeric(substr(GeoFIPS,1,3))) 
+
+#Create a New Grouped df for county sums, then group by region and year
+state_sums <- grouped3 %>%
+  filter(!str_ends(GeoFIPS,"000"))%>% #just grabbing counties
+  #create a variable to identify the state
+   mutate(state_id = as.numeric(substr(GeoFIPS,1,3))) %>%
+  #group by state and year, summarize total amount of manuf and total number of missing values
+  group_by(state_id,Year)%>%
+  summarize(total_manuf = sum(as.numeric(Manufacturing),na.rm = TRUE),count_D = sum(is.na(Manufacturing)))
+
+
+# join state_total df to state_sums data
+state_joined <- left_join(state_totals,state_sums)%>%
+  #subtract county sum from state total
+transform(missing_amount_manuf = as.numeric(Manufacturing)- total_manuf) %>%
+  transform(average_D = missing_amount_manuf / count_D)%>%
+#select just the year level new number as to not interfere in next join
+  select(Year,state_id, average_D)
+
+#add state id onto grouped3
+grouped4 <- grouped3 %>%
+  mutate(state_id = as.numeric(substr(GeoFIPS,1,3))) 
+
+#join region average back onto original "grouped" data
+states_joined_w_all<- left_join(grouped4,state_joined)%>%
+  mutate(Manufacturing = if_else(is.na(Manufacturing) & !str_ends(GeoFIPS,"000"),average_D,as.numeric(Manufacturing)))
+#don't want this to replace ALL manufacturing n/as, just the ones for counties
+
+#take new version of manufacturing and use it to continue on in data anaysis
+grouped_final<- select(states_joined_w_all,-average_D)
+
+#at this point, I should have no missing manufacturing data
+grouped_final %>%
+  filter(is.na(Manufacturing))
+
+grouped_final %>%
+  filter(is.na(`Personal income (thousands of dollars)`))
+#good!
+
+
+
+#final, clean dataset: 
+clean <- grouped_final %>%
+  transform(percent_manuf = as.numeric(Manufacturing) /as.numeric(`Personal income (thousands of dollars)`)) %>%
+  #just need counties
+  filter(!str_ends(GeoFIPS,"000"))%>%
+  #just need county, GeoFIS, Year, and percent_manuf)
+  select(GeoFIPS,County,Year,percent_manuf)%>%
+  mutate(GeoFIPS = as.numeric(GeoFIPS))
+clean
+```
+
+
+```{r}
+
 library(ggplot2)
 library(tidyverse)
 
@@ -36,3 +178,34 @@ deaths %>%
   group_by(Year)%>%
  summarize(n=sum(Deaths, na.rm = TRUE))%>%
   ggplot() + aes(x = Year,y=n) +geom_point()
+
+deaths <- deaths %>%
+  rename(GeoFIPS = County.Code)%>%
+  rename(County.Name = County) %>%
+  select(-Year.Code,-ï..Notes) %>%
+  mutate(GeoFIPS = as.numeric(GeoFIPS))
+  
+
+#Join Deaths Data with Manuf Data
+combined <- inner_join(clean,deaths)
+
+```
+
+
+
+```{r}
+
+
+```
+
+
+```{r}
+
+
+```
+
+
+## Drug Related Deaths Data
+
+```{r}
+
