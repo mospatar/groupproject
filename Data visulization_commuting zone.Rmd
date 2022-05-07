@@ -1,0 +1,148 @@
+---
+title: "Data visualization_ChinaShock_Commuting zone_1990_2007"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r}
+# Load library
+
+library(dplyr)
+library(ggplot2)
+library(sf)
+library(haven)
+library(classInt)
+
+# read commuting zone shapefile (from https://healthinequality.org/data/)
+shape <- read_sf(dsn = "./data/cz1990.shx")
+
+# read workfile_china dta data (d_tradeusch_pw and l_shind_manuf_cbp) (from https://chinashock.info/data/)
+chinashock <- read_dta("data/workfile_china.dta")
+
+# d_tradeusch_pw = Change in Import Exposure per Worker
+# l_shind_manuf_cbp = CBP Manufacturing Employment Share
+
+# Renaming the shape column 
+shape <- shape %>%
+  rename('czone' = 'cz')
+
+# Filtering the data for 1990 
+china_1990 <- chinashock %>%
+  select(yr, czone, d_tradeusch_pw, l_shind_manuf_cbp) %>%
+  filter(yr == 1990)
+
+# Filtering the data for 2000
+china_2000 <- chinashock %>%
+  select(yr, czone, d_tradeusch_pw, l_shind_manuf_cbp) %>%
+  filter(yr == 2000)
+
+# Merging the shapefiles
+shp_1990 <- inner_join(shape, china_1990, by = c('czone'))
+
+shp_2000 <- inner_join(shape, china_2000, by = c('czone'))
+```
+
+```{r}
+# 1. Change in Import Exposure per Worker(d_tradeusch_pw)
+
+# Basic map - 1990 of d_tradeusch_pw
+usa_1990_tr <- ggplot(data = shp_1990) +
+  geom_sf(aes(fill = d_tradeusch_pw)) +
+  scale_fill_continuous("Percentage", trans = 'reverse') +
+  labs(title = "Change in Import Exposure per Worker in 1990s")
+
+# View the map  - 1990 of d_tradeusch_pw
+usa_1990_tr
+
+# Basic map - 2000 of d_tradeusch_pw
+usa_2000_tr <- ggplot(data = shp_2000) +
+  geom_sf(aes(fill = d_tradeusch_pw)) +
+  scale_fill_continuous("Percentage",trans = 'reverse') +
+  labs(title = "Change in Import Exposure per Worker in 2000s")
+
+# View the map  - 2000 of d_tradeusch_pw
+usa_2000_tr
+
+# get quantile breaks. Add .00001 offset to catch the lowest value
+# Source : https://cengel.github.io/R-spatial/mapping.html
+breaks_1990_tr <- classIntervals(c(min(shp_1990$d_tradeusch_pw) - .00001, shp_1990$d_tradeusch_pw), n = 9, style = "quantile")
+
+breaks_2000_tr <- classIntervals(c(min(shp_2000$d_tradeusch_pw) - .00001, shp_2000$d_tradeusch_pw), n = 9, style = "quantile")
+
+# Mutating the column for quantiles
+shp_1990_qt_tr <- mutate(shp_1990, d_tradeusch_pw = cut(d_tradeusch_pw, breaks_1990_tr$brks)) 
+
+shp_2000_qt_tr <- mutate(shp_2000, d_tradeusch_pw = cut(d_tradeusch_pw, breaks_2000_tr$brks)) 
+
+# Quartile map - 1990
+usa_1990_qt_tr <- ggplot(data = shp_1990_qt_tr) +
+  geom_sf(aes(fill = d_tradeusch_pw )) +
+  scale_fill_brewer("Percentage", palette = "OrRd") +
+  labs(title = "Change in Import Exposure per Worker in 1990s(Quantiles)")
+
+# View the map
+usa_1990_qt_tr
+
+# Basic map - 2000
+usa_2000_qt_tr <- ggplot(data = shp_2000_qt_tr) +
+  geom_sf(aes(fill = d_tradeusch_pw )) +
+  scale_fill_brewer("Percentage", palette = "OrRd") +
+  labs(title = "Change in Import Exposure per Worker in 2000s(Quantiles)")
+
+# View the map  - 2000
+usa_2000_qt_tr
+```
+
+```{r}
+# 2. CBP Manufacturing Employment Share(l_shind_manuf_cbp) 
+
+# Basic map - 1990 of l_shind_manuf_cbp
+usa_1990_mf <- ggplot(data = shp_1990) +
+  geom_sf(aes(fill = l_shind_manuf_cbp)) +
+  scale_fill_continuous("Percentage", trans = 'reverse') +
+  labs(title = "CBP Manufacturing Employment Share in 1990s")
+
+# View the map  - 1990 of l_shind_manuf_cbp
+usa_1990_mf
+
+# Basic map - 2000 of l_shind_manuf_cbp
+usa_2000_mf <- ggplot(data = shp_2000) +
+  geom_sf(aes(fill = l_shind_manuf_cbp )) +
+  scale_fill_continuous("Percentage", trans = 'reverse')+
+  labs(title = "CBP Manufacturing Employment Share in 2000s")
+
+# View the map  - 2000 of l_shind_manuf_cbp
+usa_2000_mf
+
+# get quantile breaks. Add .00001 offset to catch the lowest value
+# Source : https://cengel.github.io/R-spatial/mapping.html
+breaks_1990_mf <- classIntervals(c(min(shp_1990$l_shind_manuf_cbp) - .00001, shp_1990$l_shind_manuf_cbp), n = 9, style = "quantile")
+
+breaks_2000_mf <- classIntervals(c(min(shp_2000$l_shind_manuf_cbp) - .00001, shp_2000$l_shind_manuf_cbp), n = 9, style = "quantile")
+
+# Mutating the column for quartiles
+shp_1990_qt <- mutate(shp_1990, l_shind_manuf_cbp = cut(l_shind_manuf_cbp, breaks_1990_mf$brks)) 
+
+shp_2000_qt <- mutate(shp_2000, l_shind_manuf_cbp = cut(l_shind_manuf_cbp, breaks_2000_mf$brks)) 
+
+# Quartile map - 1990
+usa_1990_mf_qt <- ggplot(data = shp_1990_qt) +
+  geom_sf(aes(fill = l_shind_manuf_cbp )) +
+  scale_fill_brewer("Percentage", palette = "OrRd")+
+  labs(title = "CBP Manufacturing Employment Share in 1990s(Quantiles)")
+
+# View the map
+usa_1990_mf_qt
+
+# Basic map - 2000
+usa_2000_mf_qt <- ggplot(data = shp_2000_qt) +
+  geom_sf(aes(fill = l_shind_manuf_cbp )) +
+  scale_fill_brewer("Percentage", palette = "OrRd")+
+  labs(title = "CBP Manufacturing Employment Share in 2000s(Quantiles)")
+
+# View the map  - 2000
+usa_2000_mf_qt
+
+```
