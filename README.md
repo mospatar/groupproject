@@ -1,12 +1,12 @@
 # groupproject
 
 
-Our project contain three pieces. The Rmd files should be read in that order.
+Our project contain four pieces. The Rmd files should be read in that order.
 
-1) Visualization of existing china shock research (NOTE: This work is a replication of research conducted by David Autor. It relies on his compiled datasets and just recreates the images in R that he was able to complete with data from 1990s-2000)
-3) Data Cleaning for Subsequent Machine Learning
-4) Machine Learning using county data from 2000 - 2020
-5) Text Analysis on news data referencing china imports
+1) Data visualization_commuting zone: Visualization of existing china shock research (NOTE: This work is a replication of research conducted by David Autor. It relies on his compiled datasets and just recreates the images in R that he was able to complete with data from 1990s-2000)
+2) DataCleaningGroup: Data Cleaning for Subsequent Machine Learning
+3) Death_Prediction: Machine Learning using county data from 2000 - 2020
+4) text: Text Analysis on news data referencing china imports
 
 Our data sources include 
   - CNN News Articles from 2011 to 2022: https://www.kaggle.com/datasets/hadasu92/cnn-articles-after-basic-cleaning
