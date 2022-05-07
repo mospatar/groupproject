@@ -1,0 +1,273 @@
+---
+title: "Text Analysis"
+output: html_document
+---
+
+## Packages
+
+```{r, results='hide', warning=FALSE}
+library(dplyr)
+library(tidytext)
+library(tidyverse)
+library(SnowballC)
+library(stopwords)
+library(ggwordcloud)
+library(lubridate)
+```
+
+
+
+## Data Manipulation
+
+##### Import Data Set
+Data Source: [CNN News Articles from 2011 to 2022, kaggle.com](https://www.kaggle.com/datasets/hadasu92/cnn-articles-after-basic-cleaning)
+```{r}
+cnn <- read.csv(file = "cnn.csv")
+cnn <- janitor::clean_names(cnn)
+```
+
+##### Data Cleaning
+```{r, warning=FALSE}
+# Filter news about China
+# Filter relevant sections
+# Select relevant columns
+
+cnn_ch <- cnn %>%
+  filter(str_detect(article_text, "china|China|CHINA|chinese|Chinese|CHINESE")) %>%
+  filter(str_detect(article_text, "import|Import|IMPORT|trade|Trade|TRADE")) %>%
+  filter(section %in% c("politics", "opinions","opinion")) %>%
+  select(index, date_published, section, headline, article_text) %>%
+  mutate(year = lubridate::year(date_published))
+  
+# Create party column
+president <- tribble(
+  ~year, ~president,
+  2013,   "Obama",
+  2014,   "Obama",
+  2015,   "Obama",
+  2016,   "Obama",
+  2017,   "Trump",
+  2018,   "Trump",
+  2019,   "Trump",
+  2020,   "Trump",
+  2021,   "Biden",
+  2022,   "Biden")
+
+president$president <- factor(president$president,
+                              levels = c("Obama", "Trump", "Biden"))
+
+cnn_ch <- merge(cnn_ch, president)
+
+#replace 'opinion' in column section with 'opinion'
+cnn_ch['section'][cnn_ch['section'] == "opinion"] <- "opinions"
+
+# rename col name
+names(cnn_ch) <- c('year','index','date','section','headline','text', 'president')
+
+# Get the text column
+text <- cnn_ch$text
+# Set the text to lowercase
+text <- tolower(text)
+# Remove mentions, urls, emojis, numbers, punctuations, etc.
+text <- gsub("@\\w+", "", text)
+text <- gsub("https?://.+", "", text)
+text <- gsub("\\d+\\w*\\d*", "", text)
+text <- gsub("#\\w+", "", text)
+text <- gsub("[^\x01-\x7F]", "", text)
+text <- gsub("[[:punct:]]", " ", text)
+# Remove spaces and newlines
+text <- gsub("\n", " ", text)
+text <- gsub("^\\s+", "", text)
+text <- gsub("\\s+$", "", text)
+text <- gsub("[ |\t]+", " ", text)
+# Put the data to a new column
+cnn_ch["fix_text"] <- text
+```
+
+```{r, warning=FALSE}
+# Visualize total of news by section and by year (2013 - 2022)
+library(ggplot2)
+library(patchwork)
+
+p1 <- cnn_ch %>%
+  group_by(section) %>%
+  summarize(news = n_distinct(index)) %>%
+  ggplot(aes(section, news)) +
+  geom_col() +
+  labs(y = NULL) +
+  theme_minimal()
+
+p2 <- cnn_ch %>%
+  group_by(year) %>%
+  summarize(news = n_distinct(index)) %>%
+  ggplot(aes(year, news)) +
+  geom_col() +
+  labs(y = NULL) +
+  scale_x_continuous(breaks = c(2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)) +
+  theme_minimal()
+
+p1 + p2
+```
+
+
+##### Tokenize & Stem
+```{r, warning=FALSE}
+# Tokenize
+tidy_cnn_ch <- cnn_ch %>%
+  unnest_tokens(output = word, input = fix_text)
+
+# create domain-specific stop words
+domain_stop_words <- tribble(
+  ~word, 
+  "photo",
+  "caption",
+  "cnn") %>%
+  mutate(lexicon = "custom")
+
+stop_words <- bind_rows(stop_words,domain_stop_words)
+
+# remove stop words and stem the words
+tidy_cnn_ch <- tidy_cnn_ch %>%
+  anti_join(stop_words, by = "word") %>%
+  mutate(word = wordStem(word))
+
+# Count frequent words
+tidy_cnn_ch %>%
+  count(word, sort = TRUE) %>%
+  filter(word != "photo") %>%
+  head(n=10)
+
+words_by_president <- tidy_cnn_ch %>%
+  count(president, word, sort = TRUE) %>%
+  ungroup()
+
+words_by_year <- tidy_cnn_ch %>%
+  count(year, word, sort = TRUE) %>%
+  ungroup()
+
+# Visualize
+# Static Word Cloud
+words_by_president %>%
+  filter(word != "photo") %>%
+  filter(n>200) %>%
+    ggplot(aes(label = word,
+           size = n,
+           x = president, color = president)) +
+  geom_text_wordcloud_area(show.legend = TRUE) +
+  scale_size_area(max_size = 15) +
+  scale_x_discrete(breaks = NULL) +
+  theme_minimal()
+
+```
+
+##### tf-idf
+```{r, warning=FALSE}
+tf_idf <- words_by_president %>%
+  bind_tf_idf(word, president, n) %>%
+  arrange(desc(tf_idf))
+
+tf_idf %>%
+  head(n=15)
+
+tf_idf %>%
+  group_by(president) %>%
+  slice_max(tf_idf, n = 12) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, tf_idf)) %>%
+  ggplot(aes(tf_idf, word, fill = president)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ president, scales = "free") +
+  labs(x = "tf-idf", y = NULL) +
+  theme_minimal()
+```
+
+## Sentiment Analysis
+```{r, warning=FALSE}
+sentiments <- words_by_year %>%
+  inner_join(get_sentiments("afinn"), by = "word") %>%
+  group_by(year) %>%
+  summarize(value = sum(value * n) / sum(n))
+
+# Visualize 1
+sentiments <- merge(sentiments, president)
+sentiments %>%
+  ggplot(aes(year, value, fill=president)) +
+  geom_col() +
+  labs(y = NULL) +
+  scale_x_continuous(breaks = c(2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)) +
+  theme_minimal() +
+  labs(title="Positivity Value By Year, 2013 - 2022")
+
+# Visualize 2
+sentiments %>%
+  mutate(year = reorder(year, value)) %>%
+  ggplot(aes(value, year, fill = value > 0)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = "Average sentiment value", y = NULL) +
+  theme_minimal() +
+  labs(title="Positivity Value By Year, 2013 - 2022")
+```
+
+##### Sentiment analysis by word
+```{r, warning=FALSE}
+contributions <- words_by_year %>%
+  inner_join(get_sentiments("afinn"), by = "word") %>%
+  group_by(word) %>%
+  summarize(occurences = n(),
+            contribution = sum(value))
+
+contributions %>%
+  head(n=15)
+
+# Visualize
+contributions %>%
+  slice_max(abs(contribution), n = 25) %>%
+  mutate(word = reorder(word, contribution)) %>%
+  ggplot(aes(contribution, word, fill = contribution > 0)) +
+  geom_col(show.legend = FALSE) +
+  labs(y = NULL) +
+  theme_minimal()
+
+top_sentiment_words <- words_by_year %>%
+  inner_join(get_sentiments("afinn"), by = "word") %>%
+  mutate(contribution = value * n / sum(n))
+
+top_sentiment_words <- merge(top_sentiment_words, president)
+
+# Visualize
+top_sentiment_words %>%
+  slice_max(abs(contribution), n = 25) %>%
+  mutate(word = reorder(word, contribution)) %>%
+  ggplot(aes(contribution, word, fill = contribution > 0)) +
+  geom_col(show.legend = FALSE) +
+  labs(y = NULL) +
+  theme_minimal() +
+  facet_wrap(~ president)
+```
+
+
+```{r,include=FALSE}
+##### Word pairs
+# split into word pairs
+bigrams <- cnn_ch %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2)
+
+# Remove numeric
+
+# Remove stop words
+bigrams <- bigrams %>%
+  separate(bigram, into = c("first","second"), sep = " ", remove = FALSE) %>%
+  anti_join(stop_words, by = c("first" = "word")) %>%
+  anti_join(stop_words, by = c("second" = "word")) %>%
+  filter(str_detect(first, "[a-z]") &
+         str_detect(second, "[a-z]"))
+
+bigrams_count <- bigrams %>%
+  group_by(president,bigram) %>%
+  count(sort = TRUE)
+
+bigrams_count %>%
+  head(20)
+
+```
+
