@@ -1,9 +1,10 @@
 # groupproject
 
 
-Our project contain three pieces 
+Our project contain three pieces. The Rmd files should be read in that order.
 
 1) Visualization of existing china shock research
+2) Data Cleaning for Subsequent Machine Learning
 3) Machine Learning using county data from 2000 - 2020
 4) Text Analysis on news data referencing china imports
 
